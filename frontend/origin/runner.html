@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>정글 원숭이 점프</title>
+    <style>
+        body { text-align: center; font-family: 'Arial', sans-serif; background-color: #8fce00; color: #333; margin: 0; padding: 20px; }
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #27ae60; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.2s; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .home-btn:hover { background: #2ecc71; transform: scale(1.05); }
+        
+        h1 { color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.4); }
+        
+        .game-container { position: relative; width: 600px; margin: 0 auto; }
+        canvas { background: #e0f7fa; border: 4px solid #27ae60; border-radius: 10px; display: block; box-shadow: 0 10px 20px rgba(0,0,0,0.3); border-bottom: 10px solid #8d6e63; }
+        
+        #uiScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; z-index: 10; }
+        button { font-size: 22px; padding: 15px 40px; background: #f1c40f; color: #333; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 5px 15px rgba(241,196,15,0.4); }
+        button:hover { background: #f39c12; color: white; transform: scale(1.05); }
+
+        #leaderboard { margin-top: 20px; background: rgba(255,255,255,0.9); padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 400px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        li { font-size: 18px; margin: 8px 0; border-bottom: 1px dashed #7f8c8d; padding-bottom: 5px; list-style: none; color: #2c3e50; }
+        .rank-1 { color: #d35400; font-weight: bold; font-size: 22px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+    
+    <h1>🐒 정글 원숭이 무한 점프</h1>
+    <p style="color: #fff; font-weight: bold; margin-top: -10px;">스페이스바(Space)로 점프!2단 점프 가능!
+ 아래 화살표(↓)로 숙이기!</p>
+    
+    <div class="game-container">
+        <canvas id="gameCanvas" width="600" height="250"></canvas>
+        <div id="uiScreen">
+            <h2 id="uiMessage" style="color: white; text-shadow: 2px 2px 4px #000;">준비되셨나요?</h2>
+            <button id="startBtn" onclick="startGame()">▶ 게임 시작</button>
+        </div>
+    </div>
+
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #27ae60;">🏆 실시간 명예의 전당</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let playing = false;
+        let score = 0;
+        let frames = 0;
+        let animationId;
+        let gameSpeed = 8; // 시작 속도 상향!
+
+	// 원숭이 객체 (2단 점프 패치 완료!)
+        const monkey = {
+            x: 50, y: 200, size: 40,
+            vy: 0, gravity: 0.7, jumpPower: -12, 
+            jumpCount: 0, // 💡 현재 점프 횟수
+            maxJumps: 2,  // 💡 최대 점프 허용 횟수 (2단 점프!)
+            isDucking: false, 
+            
+            draw() {
+                ctx.font = "40px Arial";
+                if (this.isDucking) {
+                    ctx.font = "25px Arial"; 
+                    ctx.fillText("🐒", this.x, this.y + 35 + 10); 
+                } else {
+                    ctx.fillText("🐒", this.x, this.y + 35); 
+                }
+            },
+            jump() {
+                // 💡 점프 횟수가 2번 미만이고, 숙이지 않았을 때만 점프 허용!
+                if (this.jumpCount < this.maxJumps && !this.isDucking) {
+                    this.vy = this.jumpPower; // 위로 솟구치는 힘 적용
+                    this.jumpCount++;         // 점프 횟수 1 증가
+                }
+            },
+            duck(state) {
+                this.isDucking = state;
+                if (state) {
+                    this.size = 25; 
+                    // 공중에 떠 있을 때(점프 카운트가 1 이상일 때) 아래 누르면 급강하!
+                    if (this.jumpCount > 0) {
+                        this.vy += 20; 
+                    }
+                } else {
+                    this.size = 40; 
+                }
+            },
+            update() {
+                this.vy += this.gravity;
+                this.y += this.vy;
+                
+                // 바닥 고정
+                const groundY = 210 - this.size;
+                if (this.y > groundY) {
+                    this.y = groundY;
+                    this.vy = 0;
+                    this.jumpCount = 0; // 💡 땅에 닿으면 점프 횟수 다시 0으로 초기화!
+                }
+            }
+        };    
+
+        const obstacles = [];
+        const groundTypes = ["🌴", "🌵", "🐊"];
+        const airTypes = ["🦅", "🦇"]; // 💡 공중 몬스터 추가!
+
+        function startGame() {
+            document.getElementById("uiScreen").style.display = "none";
+            obstacles.length = 0;
+            score = 0;
+            frames = 0;
+            gameSpeed = 6;
+            playing = true;
+            monkey.duck(false); 
+            monkey.y = 210 - monkey.size;
+            monkey.vy = 0;
+            loop();
+        }
+
+        function loop() {
+            if (!playing) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 땅바닥 선 그리기
+            ctx.beginPath();
+            ctx.moveTo(0, 210);
+            ctx.lineTo(canvas.width, 210);
+            ctx.strokeStyle = "#8d6e63";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            monkey.update();
+            monkey.draw();
+
+            // 난이도 조절: 속도 증가
+            if (frames % 400 === 0) gameSpeed += 0.5;
+
+            // 💡 장애물 소환 로직 (간격 확 줄임!)
+            let spawnRate = Math.max(25, 50 - Math.floor(score / 5)); // 최소 30프레임마다 나옴
+            if (frames % spawnRate === 0) {
+                // 30% 확률로 공중 몬스터, 70% 확률로 지상 몬스터
+                let isAir = Math.random() < 0.3; 
+                
+                if(isAir) {
+                    // 공중 몬스터는 원숭이 머리 높이로 날아옴! (점프 안 하고 숙이거나 그냥 지나가야 함)
+                    let type = airTypes[Math.floor(Math.random() * airTypes.length)];
+                    obstacles.push({ x: canvas.width, y: 210 - 70, size: 30, emoji: type, isAir: true });
+                } else {
+                    let type = groundTypes[Math.floor(Math.random() * groundTypes.length)];
+                    obstacles.push({ x: canvas.width, y: 210 - 40, size: 40, emoji: type, isAir: false });
+                }
+            }
+
+            for (let i = 0; i < obstacles.length; i++) {
+                let obs = obstacles[i];
+                // 새는 땅 몬스터보다 1.5배 빠름!
+                obs.x -= (obs.isAir ? gameSpeed * 1.5 : gameSpeed);
+                
+                ctx.font = (obs.isAir ? "30px Arial" : "40px Arial");
+                ctx.fillText(obs.emoji, obs.x, obs.y + (obs.isAir ? 25 : 35));
+
+                // 💡 히트박스 충돌 판정 (숙이기 반영)
+                const hitMargin = 10;
+                if (monkey.x + monkey.size - hitMargin > obs.x + hitMargin && 
+                    monkey.x + hitMargin < obs.x + obs.size - hitMargin &&
+                    monkey.y + monkey.size - hitMargin > obs.y + hitMargin &&
+                    monkey.y + hitMargin < obs.y + obs.size - hitMargin) {
+                    gameOver();
+                    return;
+                }
+
+                if (obs.x + obs.size < 0) {
+                    obstacles.splice(i, 1);
+                    i--;
+                }
+            }
+
+            if (frames % 10 === 0) score++;
+
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 20px Arial";
+            ctx.fillText("Score: " + score, 20, 30);
+
+            frames++;
+            animationId = requestAnimationFrame(loop);
+        }
+
+        function gameOver() {
+            playing = false;
+            cancelAnimationFrame(animationId);
+            
+            setTimeout(() => {
+                const nickname = prompt(`💥 충돌!\n최종 점수: ${score}점\n명예의 전당에 올릴 닉네임을 입력하세요!`);
+                if (nickname) {
+                    document.getElementById("startBtn").innerText = "점수 전송 중...";
+                    fetch("/api/ranking", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nickname: nickname, score: score, game_type: 'runner' })
+                    }).then(() => loadRanking());
+                }
+                document.getElementById("uiScreen").style.display = "flex";
+                document.getElementById("uiMessage").innerText = `최종 점수: ${score}점`;
+                document.getElementById("startBtn").innerText = "🔄 다시 달리기";
+            }, 100);
+        }
+
+        function loadRanking() {
+            fetch("/api/ranking?game_type=runner").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList');
+                list.innerHTML = "";
+                data.forEach((user, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : '';
+                    list.innerHTML += `<li class="${rankClass}">${index + 1}등 : ${user.nickname} <span style="float: right; color: #27ae60; font-weight: bold;">${user.score}점</span></li>`;
+                });
+            }).catch(err => document.getElementById('rankList').innerHTML = "<li>랭킹 로드 실패</li>");
+        }
+
+        // 💡 스페이스바 점프, 아래 화살표 숙이기 이벤트
+        window.addEventListener("keydown", (e) => {
+            if (!playing) return;
+            if (e.code === "Space" || e.code === "ArrowUp") {
+                e.preventDefault(); 
+                monkey.jump();
+            } else if (e.code === "ArrowDown") {
+                e.preventDefault();
+                monkey.duck(true);
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.code === "ArrowDown") {
+                monkey.duck(false);
+            }
+        });
+        
+        canvas.addEventListener("mousedown", () => {
+            if (playing) monkey.jump();
+        });
+
+        loadRanking();
+    </script>
+</body>
+</html>

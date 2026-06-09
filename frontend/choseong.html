@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>30초 초성 게임</title>
+    <style>
+        body { text-align: center; font-family: 'Arial', sans-serif; background-color: #2c3e50; color: #ecf0f1; margin: 0; padding: 20px; }
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #e67e22; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.2s; z-index: 100; }
+        .home-btn:hover { background: #d35400; transform: scale(1.05); }
+        
+        h1 { color: #f1c40f; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        
+        #game-container { background: #34495e; padding: 30px; border-radius: 15px; display: inline-block; box-shadow: 0 10px 20px rgba(0,0,0,0.4); min-width: 400px; margin-bottom: 20px; }
+        
+        #status-bar { display: flex; justify-content: space-between; font-size: 20px; font-weight: bold; margin-bottom: 20px; color: #bdc3c7; }
+        
+        #quiz-box { background: #ecf0f1; color: #2c3e50; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+        #choseong { font-size: 60px; font-weight: bold; margin: 10px 0; letter-spacing: 5px; }
+        #hint { font-size: 18px; color: #e74c3c; font-weight: bold; }
+        
+        #answerInput { font-size: 24px; padding: 10px; width: 70%; text-align: center; border: 3px solid #3498db; border-radius: 8px; outline: none; display: none; }
+        #answerInput:focus { border-color: #f1c40f; }
+        
+        #startBtn { font-size: 24px; padding: 15px 40px; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        #startBtn:hover { background: #2980b9; }
+
+        #leaderboard { margin-top: 20px; background: #34495e; padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 350px; }
+        li { font-size: 18px; margin: 8px 0; border-bottom: 1px dashed #7f8c8d; padding-bottom: 5px; list-style: none; color: #ecf0f1; }
+        .rank-1 { color: #f1c40f; font-weight: bold; font-size: 22px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+    
+    <h1>🧠 30초 두뇌 풀가동! 초성 게임</h1>
+    
+    <div id="game-container">
+        <div id="status-bar">
+            <span>⏳ 남은 시간: <span id="timer" style="color: #e74c3c;">30</span>초</span>
+            <span>⭐ 점수: <span id="score" style="color: #3498db;">0</span>점</span>
+        </div>
+        
+        <div id="quiz-box">
+            <div id="hint">시작 버튼을 눌러주세요!</div>
+            <div id="choseong">???</div>
+        </div>
+        
+        <input type="text" id="answerInput" placeholder="정답 입력 후 엔터!" autocomplete="off" onkeypress="handleKeyPress(event)">
+        <button id="startBtn" onclick="startGame()">🚀 게임 시작</button>
+    </div>
+
+    <br>
+
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #f1c40f;">🏆 실시간 명예의 전당</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const wordList = [
+            // 기존 단어
+            { init: "ㅂㄴㄴ", answer: "바나나", hint: "과일" },
+            { init: "ㅋㅍㅌ", answer: "컴퓨터", hint: "전자기기" },
+            { init: "ㅈㅈㄱ", answer: "자전거", hint: "탈것" },
+            { init: "ㅎㄹㅇ", answer: "호랑이", hint: "동물" },
+            { init: "ㅇㅌㄴ", answer: "인터넷", hint: "IT 용어" },
+            { init: "ㅅㅁㅌㅍ", answer: "스마트폰", hint: "전자기기" },
+            { init: "ㅇㅇㅋ", answer: "에어컨", hint: "가전제품" },
+            { init: "ㅂㅎㄱ", answer: "비행기", hint: "탈것" },
+            { init: "ㅇㅌㅂ", answer: "유튜브", hint: "플랫폼" },
+            { init: "ㄹㄴㅅ", answer: "리눅스", hint: "운영체제" },
+            { init: "ㅇㅂㅌ", answer: "우분투", hint: "운영체제" },
+            { init: "ㄷㅇㅌㅂㅇㅅ", answer: "데이터베이스", hint: "IT 용어" },
+            { init: "ㄱㅂㅈ", answer: "개발자", hint: "직업" },
+            { init: "ㅋㄹㅇㄷ", answer: "클라우드", hint: "IT 인프라" },
+            { init: "ㅅㄱ", answer: "사과", hint: "과일" },
+            { init: "ㄱㅇㅈ", answer: "강아지", hint: "동물" },
+            { init: "ㄹㄷㅂㄹㅅ", answer: "로드밸런서", hint: "네트워크 기술" },
+            { init: "ㅇㅈ", answer: "우주", hint: "공간" },
+            
+            // 💡 새로 추가된 동물 단어 10개!
+            { init: "ㄱㅇㅇ", answer: "고양이", hint: "동물" },
+            { init: "ㅋㅋㄹ", answer: "코끼리", hint: "동물" },
+            { init: "ㅇㅅㅇ", answer: "원숭이", hint: "동물" },
+            { init: "ㄱㄹ", answer: "기린", hint: "동물" },
+            { init: "ㅌㄲ", answer: "토끼", hint: "동물" },
+            { init: "ㄷㅈ", answer: "돼지", hint: "동물" },
+            { init: "ㅅㅈ", answer: "사자", hint: "동물" },
+            { init: "ㅍㄱ", answer: "펭귄", hint: "동물" },
+            { init: "ㅍㄷ", answer: "판다", hint: "동물" },
+            { init: "ㄷㅅㄹ", answer: "독수리", hint: "동물" }
+        ];
+
+        let score = 0;
+        let timeLeft = 30; // 💡 30초로 수정
+        let timerId = null;
+        let currentWord = null;
+        let playing = false;
+
+        function startGame() {
+            score = 0;
+            timeLeft = 30; // 💡 30초로 수정
+            playing = true;
+            
+            document.getElementById("score").innerText = score;
+            document.getElementById("timer").innerText = timeLeft;
+            document.getElementById("startBtn").style.display = "none";
+            document.getElementById("answerInput").style.display = "inline-block";
+            document.getElementById("answerInput").value = "";
+            document.getElementById("answerInput").focus();
+
+            nextWord();
+
+            timerId = setInterval(() => {
+                timeLeft--;
+                document.getElementById("timer").innerText = timeLeft;
+                
+                if (timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function nextWord() {
+            const randomIndex = Math.floor(Math.random() * wordList.length);
+            currentWord = wordList[randomIndex];
+            
+            document.getElementById("choseong").innerText = currentWord.init;
+            document.getElementById("hint").innerText = `💡 힌트: ${currentWord.hint}`;
+        }
+
+        function handleKeyPress(e) {
+            if (!playing) return;
+            if (e.key === "Enter") {
+                const inputVal = document.getElementById("answerInput").value.trim();
+                
+                if (inputVal === currentWord.answer) {
+                    score += 10;
+                    document.getElementById("score").innerText = score;
+                    document.getElementById("answerInput").value = "";
+                    
+                    document.getElementById("quiz-box").style.backgroundColor = "#d4efdf";
+                    setTimeout(() => { document.getElementById("quiz-box").style.backgroundColor = "#ecf0f1"; }, 200);
+                    
+                    nextWord();
+                } else {
+                    document.getElementById("answerInput").value = "";
+                    document.getElementById("quiz-box").style.backgroundColor = "#fadbd8";
+                    setTimeout(() => { document.getElementById("quiz-box").style.backgroundColor = "#ecf0f1"; }, 200);
+                }
+            }
+        }
+
+        function endGame() {
+            playing = false;
+            clearInterval(timerId);
+            document.getElementById("answerInput").style.display = "none";
+            document.getElementById("choseong").innerText = "종료!";
+            document.getElementById("hint").innerText = "수고하셨습니다.";
+            
+            setTimeout(() => {
+                const nickname = prompt(`⏰ 타임 오버!\n최종 점수: ${score}점\n명예의 전당에 올릴 닉네임을 입력하세요!`);
+                if (nickname) {
+                    document.getElementById("startBtn").innerText = "점수 전송 중...";
+                    document.getElementById("startBtn").style.display = "inline-block";
+                    
+                    fetch("/api/ranking", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nickname: nickname, score: score, game_type: 'choseong' })
+                    }).then(() => {
+                        document.getElementById("startBtn").innerText = "🔄 다시 도전하기";
+                        loadRanking();
+                    });
+                } else {
+                    document.getElementById("startBtn").innerText = "🔄 다시 도전하기";
+                    document.getElementById("startBtn").style.display = "inline-block";
+                }
+            }, 300);
+        }
+
+        function loadRanking() {
+            fetch("/api/ranking?game_type=choseong").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList');
+                list.innerHTML = "";
+                data.forEach((user, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : '';
+                    list.innerHTML += `<li class="${rankClass}">${index + 1}등 : ${user.nickname} <span style="float: right; color: #3498db; font-weight: bold;">${user.score}점</span></li>`;
+                });
+            }).catch(err => document.getElementById('rankList').innerHTML = "<li>랭킹 로드 실패</li>");
+        }
+
+        loadRanking();
+    </script>
+</body>
+</html>

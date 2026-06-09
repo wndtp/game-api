@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>서바이벌 플래피 버드</title>
+    <style>
+        /* 💡 overflow: hidden 삭제! 스크롤 정상 작동하며 화면 중앙 고정 */
+        body { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            background: #71c5cf; 
+            font-family: 'Arial', sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            color: #333; 
+        }
+        
+        h1 { color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); font-size: 36px; margin-bottom: 10px; }
+        
+        .game-container { position: relative; width: 600px; margin-bottom: 20px; }
+        canvas { background: #ded895; border: 4px solid #444; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); display: block; cursor: pointer; }
+        
+        #uiScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; z-index: 10; }
+        #uiScreen h2 { color: #fff; margin-bottom: 20px; font-size: 36px; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+        #startBtn { padding: 15px 50px; font-size: 26px; font-weight: bold; background: #f1c40f; color: #333; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 5px 15px rgba(241,196,15,0.4); transition: 0.1s; }
+        #startBtn:active { transform: scale(0.95); }
+
+        #leaderboard { background: rgba(255,255,255,0.95); padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 600px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        li { font-size: 20px; margin: 8px 0; border-bottom: 1px dashed #ccc; padding-bottom: 5px; list-style: none; }
+        .rank-1 { color: #e74c3c; font-weight: bold; font-size: 24px; }
+
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #e74c3c; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: 0.2s; z-index: 100;}
+        .home-btn:hover { background: #c0392b; transform: scale(1.05); }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+    
+    <h1>🦅 서바이벌 플래피 버드 🦅</h1>
+    <p id="warningMsg" style="color: #e74c3c; font-weight: bold; font-size: 18px; height: 24px; margin-top: -10px;"></p>
+    
+    <div class="game-container">
+        <canvas id="gameCanvas" width="600" height="750"></canvas>
+        
+        <div id="uiScreen">
+            <h2 id="uiMessage">준비되셨나요?</h2>
+            <button id="startBtn" onclick="startGame()">▶ 게임 시작</button>
+        </div>
+    </div>
+    
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #d35400; margin-top: 0;">🏆 실시간 명예의 전당 (Top 10)</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let frames = 0, score = 0;
+        let gameStarted = false, gameOver = false;
+        let animationId;
+
+        const API_URL = "/api/ranking"; 
+
+        const bird = {
+            x: 80, y: 300, width: 36, height: 36,
+            gravity: 0.75, velocity: 0, jump: -10.5,
+            draw() {
+                ctx.fillStyle = "#f1c40f"; ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.fillStyle = "#fff"; ctx.fillRect(this.x + 18, this.y + 6, 12, 12);
+                ctx.fillStyle = "#000"; ctx.fillRect(this.x + 24, this.y + 12, 6, 6);
+            },
+            flap() { this.velocity = this.jump; },
+            update() {
+                this.velocity += this.gravity;
+                this.y += this.velocity;
+                
+                if (this.y + this.height >= canvas.height) {
+                    this.y = canvas.height - this.height;
+                    endGame("바닥에 추락했습니다!"); 
+                }
+                if (this.y < 0) {
+                    this.y = 0;
+                    this.velocity = 0;
+                }
+            }
+        };
+
+        const pipes = {
+            array: [], width: 60, gap: 200, dx: 4.5,
+            draw() {
+                for (let p of this.array) {
+                    ctx.fillStyle = "#2ecc71"; 
+                    ctx.fillRect(p.x, 0, this.width, p.top);
+                    ctx.fillRect(p.x, p.top + this.gap, this.width, canvas.height - p.top - this.gap);
+                }
+            },
+            update() {
+                if (frames % 100 === 0) {
+                    this.array.push({ x: canvas.width, top: Math.random() * (canvas.height - this.gap - 60) + 30, passed: false });
+                }
+                for (let i = 0; i < this.array.length; i++) {
+                    let p = this.array[i];
+                    p.x -= this.dx;
+
+                    const hitX = 10; 
+                    const hitY = 8; 
+                    
+                    if (bird.x + bird.width - hitX > p.x && 
+                        bird.x + hitX < p.x + this.width &&
+                        (bird.y + hitY < p.top || bird.y + bird.height - hitY > p.top + this.gap)) {
+                        endGame("파이프에 충돌했습니다!");
+                    }
+
+                    if (p.x + this.width < bird.x && !p.passed) {
+                        score++;
+                        p.passed = true;
+                        
+                        // 💡 원본처럼 1점만 먹어도 바로 경고 메시지 출력되도록 복구!
+                        if(score === 1) {
+                            document.getElementById("warningMsg").innerText = "🚨 경고: 화난 새가 날아옵니다!";
+                            setTimeout(() => { document.getElementById("warningMsg").innerText = ""; }, 3000);
+                        }
+                    }
+                    
+                    if (p.x + this.width < 0) { this.array.shift(); i--; }
+                }
+            }
+        };
+
+        const enemies = {
+            array: [], width: 36, height: 36, speed: 9,
+            draw() {
+                for (let e of this.array) {
+                    ctx.fillStyle = "#e74c3c"; ctx.fillRect(e.x, e.y, this.width, this.height);
+                    ctx.fillStyle = "#fff"; ctx.fillRect(e.x + 6, e.y + 6, 12, 12);
+                    ctx.fillStyle = "#000"; ctx.fillRect(e.x + 6, e.y + 12, 6, 6);
+                }
+            },
+            update() {
+                // 💡 원본처럼 1점 이상부터 90프레임마다 화난 새가 날아오도록 복구!
+                if (score >= 1 && frames % 90 === 0) {
+                    this.array.push({
+                        x: canvas.width,
+                        y: Math.random() * (canvas.height - this.height - 50) + 25
+                    });
+                }
+
+                for (let i = 0; i < this.array.length; i++) {
+                    let e = this.array[i];
+                    e.x -= this.speed;
+
+                    const hitMargin = 8;
+                    if (bird.x + bird.width - hitMargin > e.x && 
+                        bird.x + hitMargin < e.x + this.width &&
+                        bird.y + bird.height - hitMargin > e.y &&
+                        bird.y + hitMargin < e.y + this.height) {
+                        endGame("화난 새와 충돌했습니다!!");
+                    }
+
+                    if (e.x + this.width < 0) { this.array.shift(); i--; }
+                }
+            }
+        };
+
+        function drawScore() {
+            ctx.fillStyle = "#fff"; ctx.font = "bold 40px Arial";
+            ctx.fillText("Score: " + score, 20, 50);
+        }
+
+        function loop() {
+            if (!gameStarted) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (!gameOver) {
+                bird.update();
+                pipes.update();
+                enemies.update(); 
+            }
+            
+            bird.draw();
+            pipes.draw();
+            enemies.draw(); 
+            drawScore();
+
+            if (!gameOver) {
+                frames++;
+                animationId = requestAnimationFrame(loop);
+            }
+        }
+
+        function startGame() {
+            document.getElementById("uiScreen").style.display = "none";
+            document.getElementById("warningMsg").innerText = "";
+            bird.y = 300; bird.velocity = 0;
+            pipes.array = []; 
+            enemies.array = []; 
+            score = 0; frames = 0;
+            gameOver = false; gameStarted = true;
+            loop();
+        }
+
+        function endGame(reason) {
+            if (gameOver) return;
+            gameOver = true; 
+            gameStarted = false;
+            
+            setTimeout(() => {
+                const nickname = prompt(`💥 ${reason}\n파이프 ${score}개 통과!\n명예의 전당에 올릴 닉네임을 입력하세요!`);
+                
+                if (nickname) {
+                    document.getElementById("startBtn").innerText = "점수 전송 중...";
+                    fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nickname: nickname, score: score, game_type: 'flappy' })
+                    }).then(() => {
+                        loadRanking();
+                    }).catch(err => alert('API 서버 통신 에러!'));
+                }
+                
+                document.getElementById("uiScreen").style.display = "flex";
+                document.getElementById("uiMessage").innerText = `최종 점수: ${score}점`;
+                document.getElementById("startBtn").innerText = "🔄 다시 도전하기";
+            }, 100);
+        }
+
+        function loadRanking() {
+            fetch(API_URL + "?game_type=flappy").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList');
+                list.innerHTML = "";
+                data.forEach((user, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : '';
+                    list.innerHTML += `<li class="${rankClass}">${index + 1}등: ${user.nickname} <span style="float: right; color: #2980b9; font-weight: bold;">${user.score}점</span></li>`;
+                });
+            }).catch(err => document.getElementById('rankList').innerHTML = "<li>DB 랭킹을 가져오지 못했습니다.</li>");
+        }
+
+        // 스페이스바, 위 방향키 스크롤 방지
+        window.addEventListener("keydown", (e) => {
+            if (["Space", "ArrowUp"].includes(e.code)) {
+                e.preventDefault(); 
+                if(gameStarted && !gameOver) bird.flap();
+            }
+        }, { passive: false });
+        
+        canvas.addEventListener("mousedown", () => {
+            if(gameStarted && !gameOver) bird.flap();
+        });
+
+        loadRanking();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        bird.draw();
+    </script>
+</body>
+</html>

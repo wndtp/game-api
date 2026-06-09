@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>정글 원숭이 점프</title>
+    <style>
+        /* 💡 overflow: hidden 삭제! 스크롤 쫙쫙 내려가면서 화면 중앙 고정! */
+        body { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: flex-start;
+            min-height: 100vh;
+            text-align: center; 
+            font-family: 'Arial', sans-serif; 
+            background-color: #8fce00; 
+            color: #333; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #27ae60; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.2s; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .home-btn:hover { background: #2ecc71; transform: scale(1.05); }
+
+        h1 { color: #fff; text-shadow: 2px 2px 4px rgba(0,0,0,0.4); font-size: 36px; margin-bottom: 5px; }
+
+        .game-container { position: relative; width: 900px; margin-bottom: 20px; }
+        canvas { background: #e0f7fa; border: 4px solid #27ae60; border-radius: 10px; display: block; box-shadow: 0 10px 20px rgba(0,0,0,0.3); border-bottom: 15px solid #8d6e63; }
+
+        #uiScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; z-index: 10; }
+        button { font-size: 26px; padding: 15px 50px; background: #f1c40f; color: #333; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 5px 15px rgba(241,196,15,0.4); }
+        button:hover { background: #f39c12; color: white; transform: scale(1.05); }
+
+        #leaderboard { background: rgba(255,255,255,0.9); padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 600px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); margin-bottom: 50px; }
+        li { font-size: 20px; margin: 8px 0; border-bottom: 1px dashed #7f8c8d; padding-bottom: 5px; list-style: none; color: #2c3e50; }
+        .rank-1 { color: #d35400; font-weight: bold; font-size: 24px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+
+    <h1>🐒 정글 원숭이 무한 점프</h1>
+    <p style="color: #fff; font-weight: bold; font-size: 18px; margin-top: -5px;">스페이스바(Space)로 2단 점프! 아래 화살표(↓)로 숙이기!</p>
+
+    <div class="game-container">
+        <canvas id="gameCanvas" width="900" height="375"></canvas>
+        <div id="uiScreen">
+            <h2 id="uiMessage" style="color: white; text-shadow: 2px 2px 4px #000; font-size: 36px;">준비되셨나요?</h2>
+            <button id="startBtn" onclick="startGame()">▶ 게임 시작</button>
+        </div>
+    </div>
+
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #27ae60; margin-top: 0;">🏆 실시간 명예의 전당</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let playing = false;
+        let score = 0;
+        let frames = 0;
+        let animationId;
+        let gameSpeed = 10; 
+
+        const monkey = {
+            x: 75, y: 300, size: 60, 
+            vy: 0, gravity: 1.05, jumpPower: -18, 
+            jumpCount: 0, 
+            maxJumps: 2,  
+            isDucking: false,
+
+            draw() {
+                if (this.isDucking) {
+                    ctx.font = "40px Arial";
+                    ctx.fillText("🐒", this.x, this.y + 50 + 15);
+                } else {
+                    ctx.font = "60px Arial";
+                    ctx.fillText("🐒", this.x, this.y + 50);
+                }
+            },
+            jump() {
+                if (this.jumpCount < this.maxJumps && !this.isDucking) {
+                    this.vy = this.jumpPower; 
+                    this.jumpCount++;         
+                }
+            },
+            duck(state) {
+                this.isDucking = state;
+                if (state) {
+                    this.size = 35;
+                    if (this.jumpCount > 0) {
+                        this.vy += 30; 
+                    }
+                } else {
+                    this.size = 60;
+                }
+            },
+            update() {
+                this.vy += this.gravity;
+                this.y += this.vy;
+
+                const groundY = 320 - this.size;
+                if (this.y > groundY) {
+                    this.y = groundY;
+                    this.vy = 0;
+                    this.jumpCount = 0; 
+                }
+            }
+        };
+
+        const obstacles = [];
+        const groundTypes = ["🌴", "🌵", "🐊"];
+        const airTypes = ["🦅", "🦇"]; 
+
+        function startGame() {
+            document.getElementById("uiScreen").style.display = "none";
+            obstacles.length = 0;
+            score = 0;
+            frames = 0;
+            gameSpeed = 9;
+            playing = true;
+            monkey.duck(false);
+            monkey.y = 320 - monkey.size;
+            monkey.vy = 0;
+            loop();
+        }
+
+        function loop() {
+            if (!playing) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.beginPath();
+            ctx.moveTo(0, 320);
+            ctx.lineTo(canvas.width, 320);
+            ctx.strokeStyle = "#8d6e63";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            monkey.update();
+            monkey.draw();
+
+            if (frames % 400 === 0) gameSpeed += 0.5;
+
+            let spawnRate = Math.max(35, 60 - Math.floor(score / 5)); 
+            if (frames % spawnRate === 0) {
+                let isAir = Math.random() < 0.3;
+
+                if(isAir) {
+                    let type = airTypes[Math.floor(Math.random() * airTypes.length)];
+                    obstacles.push({ x: canvas.width, y: 320 - 105, size: 45, emoji: type, isAir: true });
+                } else {
+                    let type = groundTypes[Math.floor(Math.random() * groundTypes.length)];
+                    obstacles.push({ x: canvas.width, y: 320 - 60, size: 60, emoji: type, isAir: false });
+                }
+            }
+
+            for (let i = 0; i < obstacles.length; i++) {
+                let obs = obstacles[i];
+                obs.x -= (obs.isAir ? gameSpeed * 1.4 : gameSpeed);
+
+                ctx.font = (obs.isAir ? "45px Arial" : "60px Arial");
+                ctx.fillText(obs.emoji, obs.x, obs.y + (obs.isAir ? 35 : 50));
+
+                const hitMargin = 15; 
+                if (monkey.x + monkey.size - hitMargin > obs.x + hitMargin &&
+                    monkey.x + hitMargin < obs.x + obs.size - hitMargin &&
+                    monkey.y + monkey.size - hitMargin > obs.y + hitMargin &&
+                    monkey.y + hitMargin < obs.y + obs.size - hitMargin) {
+                    gameOver();
+                    return;
+                }
+
+                if (obs.x + obs.size < 0) {
+                    obstacles.splice(i, 1);
+                    i--;
+                }
+            }
+
+            if (frames % 10 === 0) score++;
+
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 30px Arial";
+            ctx.fillText("Score: " + score, 20, 40);
+
+            frames++;
+            animationId = requestAnimationFrame(loop);
+        }
+
+        function gameOver() {
+            playing = false;
+            cancelAnimationFrame(animationId);
+
+            setTimeout(() => {
+                const nickname = prompt(`💥 충돌!\n최종 점수: ${score}점\n명예의 전당에 올릴 닉네임을 입력하세요!`);
+                if (nickname) {
+                    document.getElementById("startBtn").innerText = "점수 전송 중...";
+                    fetch("/api/ranking", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nickname: nickname, score: score, game_type: 'runner' })
+                    }).then(() => loadRanking());
+                }
+                document.getElementById("uiScreen").style.display = "flex";
+                document.getElementById("uiMessage").innerText = `최종 점수: ${score}점`;
+                document.getElementById("startBtn").innerText = "🔄 다시 달리기";
+            }, 100);
+        }
+
+        function loadRanking() {
+            fetch("/api/ranking?game_type=runner").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList');
+                list.innerHTML = "";
+                data.forEach

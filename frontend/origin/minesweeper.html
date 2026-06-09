@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>지뢰찾기</title>
+    <style>
+        body { text-align: center; font-family: 'Arial', sans-serif; background-color: #1a1a2e; color: #fff; margin: 0; padding: 20px; }
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #e94560; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.2s; z-index: 100; }
+        .home-btn:hover { background: #ff6b81; transform: scale(1.05); }
+        
+        h1 { color: #e94560; text-shadow: 2px 2px 4px rgba(0,0,0,0.5); }
+        
+        #game-info { font-size: 20px; margin-bottom: 20px; font-weight: bold; color: #a2a2bb; display: flex; justify-content: center; gap: 40px; }
+        
+        /* 10x10 그리드 설정 */
+        .grid { display: grid; grid-template-columns: repeat(10, 35px); gap: 2px; justify-content: center; margin: 0 auto; background: #0f3460; padding: 10px; border-radius: 10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); width: fit-content; }
+        
+        .cell { width: 35px; height: 35px; background: #16213e; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; cursor: pointer; user-select: none; transition: background 0.1s; }
+        .cell:hover { background: #1f2e54; }
+        .cell.revealed { background: #ded895; color: #333; cursor: default; }
+        .cell.mine { background: #ff4757 !important; }
+        .cell.flag { color: #ff4757; }
+
+        #leaderboard { margin-top: 30px; background: #0f3460; padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 350px; }
+        li { font-size: 18px; margin: 8px 0; border-bottom: 1px dashed #535c68; padding-bottom: 5px; list-style: none; color: #ced6e0; }
+        .rank-1 { color: #f1c40f; font-weight: bold; font-size: 22px; }
+        
+        #restartBtn { margin-top: 20px; padding: 10px 20px; font-size: 18px; font-weight: bold; background: #e94560; color: #fff; border: none; border-radius: 8px; cursor: pointer; display: none; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+    
+    <h1>💣 쫄깃쫄깃 지뢰찾기</h1>
+    
+    <div id="game-info">
+        <span>⏱️ 시간: <span id="timer">0</span>초</span>
+        <span>🚩 남은 깃발: <span id="flags">10</span>개</span>
+    </div>
+    
+    <div id="grid" class="grid"></div>
+    <button id="restartBtn" onclick="initGame()">🔄 다시 하기</button>
+
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #f1c40f;">🏆 실시간 명예의 전당</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const rows = 10, cols = 10, numMines = 10;
+        let board = [], revealedCount = 0, flagsCount = 0;
+        let playing = false, firstClick = true;
+        let timerId = null, seconds = 0;
+        let finalScore = 0;
+
+        function initGame() {
+            board = [];
+            revealedCount = 0;
+            flagsCount = 0;
+            playing = true;
+            firstClick = true;
+            seconds = 0;
+            clearInterval(timerId);
+            document.getElementById('timer').innerText = seconds;
+            document.getElementById('flags').innerText = numMines;
+            document.getElementById('restartBtn').style.display = "none";
+            
+            const grid = document.getElementById('grid');
+            grid.innerHTML = '';
+
+            for (let r = 0; r < rows; r++) {
+                let row = [];
+                for (let c = 0; c < cols; c++) {
+                    row.push({ mine: false, revealed: false, flagged: false, adj: 0 });
+                    const cellEl = document.createElement('div');
+                    cellEl.classList.add('cell');
+                    cellEl.id = `cell-${r}-${c}`;
+                    
+                    // 좌클릭: 열기
+                    cellEl.addEventListener('click', () => reveal(r, c));
+                    // 우클릭: 깃발 꽂기
+                    cellEl.addEventListener('contextmenu', (e) => { e.preventDefault(); toggleFlag(r, c); });
+                    
+                    grid.appendChild(cellEl);
+                }
+                board.push(row);
+            }
+        }
+
+        function placeMines(firstR, firstC) {
+            let placed = 0;
+            while (placed < numMines) {
+                let r = Math.floor(Math.random() * rows);
+                let c = Math.floor(Math.random() * cols);
+                // 첫 클릭한 곳과 그 주변에는 지뢰를 안 둠 (억까 방지)
+                if (!board[r][c].mine && Math.abs(r - firstR) > 1 && Math.abs(c - firstC) > 1) {
+                    board[r][c].mine = true;
+                    placed++;
+                }
+            }
+            // 주변 지뢰 개수 계산
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (!board[r][c].mine) {
+                        let count = 0;
+                        for (let i = -1; i <= 1; i++) {
+                            for (let j = -1; j <= 1; j++) {
+                                if (r+i >= 0 && r+i < rows && c+j >= 0 && c+j < cols && board[r+i][c+j].mine) count++;
+                            }
+                        }
+                        board[r][c].adj = count;
+                    }
+                }
+            }
+        }
+
+        function toggleFlag(r, c) {
+            if (!playing) return;
+            let cell = board[r][c];
+            if (cell.revealed) return;
+
+            let el = document.getElementById(`cell-${r}-${c}`);
+            if (!cell.flagged && flagsCount < numMines) {
+                cell.flagged = true;
+                flagsCount++;
+                el.innerText = '🚩';
+            } else if (cell.flagged) {
+                cell.flagged = false;
+                flagsCount--;
+                el.innerText = '';
+            }
+            document.getElementById('flags').innerText = numMines - flagsCount;
+        }
+
+        function reveal(r, c) {
+            if (!playing || r < 0 || r >= rows || c < 0 || c >= cols) return;
+            let cell = board[r][c];
+            if (cell.revealed || cell.flagged) return;
+
+            if (firstClick) {
+                firstClick = false;
+                placeMines(r, c);
+                timerId = setInterval(() => {
+                    seconds++;
+                    document.getElementById('timer').innerText = seconds;
+                }, 1000);
+            }
+
+            cell.revealed = true;
+            revealedCount++;
+            let el = document.getElementById(`cell-${r}-${c}`);
+            el.classList.add('revealed');
+
+            if (cell.mine) {
+                el.classList.add('mine');
+                el.innerText = '💣';
+                endGame(false);
+                return;
+            }
+
+            if (cell.adj > 0) {
+                el.innerText = cell.adj;
+                // 숫자별 색상 부여
+                const colors = ["", "blue", "green", "red", "purple", "maroon", "turquoise", "black", "gray"];
+                el.style.color = colors[cell.adj];
+            } else {
+                // 주변에 지뢰가 없으면 연쇄적으로 열림 (재귀 함수)
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        reveal(r + i, c + j);
+                    }
+                }
+            }
+
+            // 승리 조건: (전체 칸 - 지뢰 개수) 만큼 다 열었을 때
+            if (revealedCount === rows * cols - numMines) {
+                endGame(true);
+            }
+        }
+
+        function endGame(win) {
+            playing = false;
+            clearInterval(timerId);
+            document.getElementById('restartBtn').style.display = "inline-block";
+            
+            // 점수 계산: 연 칸 수 * 10 + (승리 시 남은 시간에 따른 보너스 1000점)
+            finalScore = (revealedCount * 10) + (win ? Math.max(0, 1000 - seconds * 5) : 0);
+
+            // 맵에 있는 지뢰 다 보여주기
+            for(let r=0; r<rows; r++){
+                for(let c=0; c<cols; c++){
+                    if(board[r][c].mine && !board[r][c].flagged) {
+                        let el = document.getElementById(`cell-${r}-${c}`);
+                        el.classList.add('mine');
+                        el.innerText = '💣';
+                    }
+                }
+            }
+
+            setTimeout(() => {
+                const msg = win ? `🎉 완벽합니다! 모든 지뢰를 찾았습니다!` : `💥 쾅! 지뢰를 밟았습니다!`;
+                const nickname = prompt(`${msg}\n최종 점수: ${finalScore}점\n랭킹에 등록할 닉네임을 입력하세요!`);
+                if (nickname) {
+                    fetch("/api/ranking", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        // 💡 게임 독립 꼬리표: 'minesweeper'
+                        body: JSON.stringify({ nickname: nickname, score: finalScore, game_type: 'minesweeper' })
+                    }).then(() => loadRanking());
+                }
+            }, 500);
+        }
+
+        function loadRanking() {
+            fetch("/api/ranking?game_type=minesweeper").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList');
+                list.innerHTML = "";
+                data.forEach((user, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : '';
+                    list.innerHTML += `<li class="${rankClass}">${index + 1}등 : ${user.nickname} <span style="float: right; color: #fff;">${user.score}점</span></li>`;
+                });
+            }).catch(err => document.getElementById('rankList').innerHTML = "<li>랭킹 로드 실패</li>");
+        }
+
+        initGame();
+        loadRanking();
+    </script>
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>우주 운석 부수기</title>
+    <style>
+        /* 💡 스크롤 방지 금지! 화면 중앙에 완벽 고정 */
+        body { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: flex-start;
+            min-height: 100vh;
+            text-align: center; 
+            font-family: 'Arial', sans-serif; 
+            background-color: #0b0c10; /* 우주 배경색 */
+            color: #fff; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #3498db; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.2s; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .home-btn:hover { background: #2980b9; transform: scale(1.05); }
+
+        h1 { color: #f1c40f; text-shadow: 2px 2px 5px rgba(241,196,15,0.5); font-size: 36px; margin-bottom: 5px; }
+
+        /* 💡 1.5배 대화면 캔버스 (900x700) */
+        .game-container { position: relative; width: 700px; margin-bottom: 20px; }
+        canvas { background: #1c1f26; border: 4px solid #f1c40f; border-radius: 10px; display: block; box-shadow: 0 10px 30px rgba(241,196,15,0.2); border-bottom: 15px solid #e74c3c; /* 바닥 경계선 강조 */ }
+
+        #uiScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; z-index: 10; }
+        button { font-size: 26px; padding: 15px 50px; background: #e74c3c; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 5px 15px rgba(231,76,60,0.4); }
+        button:hover { background: #c0392b; transform: scale(1.05); }
+
+        #leaderboard { background: rgba(30,35,45,0.9); padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 600px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); border: 1px solid #3498db; margin-bottom: 50px; }
+        li { font-size: 20px; margin: 8px 0; border-bottom: 1px dashed #555; padding-bottom: 5px; list-style: none; color: #ddd; }
+        .rank-1 { color: #f1c40f; font-weight: bold; font-size: 24px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+
+    <h1>🚀 우주 운석 부수기</h1>
+    <p style="color: #bdc3c7; font-weight: bold; font-size: 18px; margin-top: -5px;">방향키로 이동하며 아이템을 먹고, 바닥에 닿는 운석을 막으세요!</p>
+
+    <div class="game-container">
+        <canvas id="gameCanvas" width="700" height="600"></canvas>
+        <div id="uiScreen">
+            <h2 id="uiMessage" style="color: #f1c40f; text-shadow: 2px 2px 4px #000; font-size: 40px;">전투 준비 완료!</h2>
+            <button id="startBtn" onclick="startGame()">▶ 출격하기</button>
+        </div>
+    </div>
+
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #3498db; margin-top: 0;">🏆 실시간 방어 랭킹</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let playing = false;
+        let score = 0;
+        let frames = 0;
+        let animationId;
+        
+        // 💡 주사율 고정(FPS 60) 변수
+        let lastTime = 0; 
+        const FPS = 60; 
+        const frameDelay = 1000 / FPS;
+
+        // 키 입력 상태
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, a: false, s: false, d: false };
+
+        const player = {
+            x: 450, y: 600, size: 40, speed: 7,
+            fireRate: 20, // 총알 발사 간격 (낮을수록 빠름)
+            shootTimer: 0,
+            multiShot: 1, // 총알 갈래 수
+            damage: 1,    // 총알 크기/파괴력
+            
+            draw() {
+                ctx.font = "40px Arial";
+                ctx.fillText("🚀", this.x - 20, this.y + 15);
+            },
+            update() {
+                if ((keys.ArrowLeft || keys.a) && this.x > 20) this.x -= this.speed;
+                if ((keys.ArrowRight || keys.d) && this.x < canvas.width - 20) this.x += this.speed;
+                if ((keys.ArrowUp || keys.w) && this.y > 20) this.y -= this.speed;
+                if ((keys.ArrowDown || keys.s) && this.y < canvas.height - 30) this.y += this.speed;
+
+                // 자동 발사 로직
+                this.shootTimer++;
+                if (this.shootTimer >= this.fireRate) {
+                    this.shootTimer = 0;
+                    this.shoot();
+                }
+            },
+            shoot() {
+                const bulletSpeed = 15;
+                const bulletSize = 5 + (this.damage * 2);
+                
+                // 멀티샷 1갈래 (정면)
+                if (this.multiShot === 1) {
+                    bullets.push({ x: this.x, y: this.y - 20, vx: 0, vy: -bulletSpeed, size: bulletSize });
+                } 
+                // 멀티샷 2갈래
+                else if (this.multiShot === 2) {
+                    bullets.push({ x: this.x - 10, y: this.y - 20, vx: -2, vy: -bulletSpeed, size: bulletSize });
+                    bullets.push({ x: this.x + 10, y: this.y - 20, vx: 2, vy: -bulletSpeed, size: bulletSize });
+                } 
+                // 멀티샷 3갈래 이상
+                else {
+                    bullets.push({ x: this.x, y: this.y - 20, vx: 0, vy: -bulletSpeed, size: bulletSize });
+                    bullets.push({ x: this.x - 15, y: this.y - 15, vx: -3, vy: -bulletSpeed, size: bulletSize });
+                    bullets.push({ x: this.x + 15, y: this.y - 15, vx: 3, vy: -bulletSpeed, size: bulletSize });
+                }
+            }
+        };
+
+        const bullets = [];
+        const meteors = [];
+        const items = [];
+        const particles = [];
+        const meteorEmojis = ["☄️", "🌑", "🪨"];
+
+        function createExplosion(x, y, color, count) {
+            for(let i=0; i<count; i++) {
+                particles.push({ 
+                    x: x, y: y, 
+                    vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, 
+                    size: Math.random() * 4 + 2, alpha: 1, color: color 
+                });
+            }
+        }
+
+        function startGame() {
+            document.getElementById("uiScreen").style.display = "none";
+            bullets.length = 0; meteors.length = 0; items.length = 0; particles.length = 0;
+            score = 0; frames = 0;
+            
+            // 플레이어 초기화
+            player.x = 450; player.y = 600;
+            player.fireRate = 25; 
+            player.multiShot = 1;
+            player.damage = 1;
+            
+            playing = true;
+            lastTime = Date.now();
+            loop();
+        }
+
+        function spawnMeteor() {
+            let x = Math.random() * (canvas.width - 60) + 30;
+            // 💡 시간이 지날수록 운석 속도와 체력이 증가함
+            let speed = Math.random() * 2 + 1 + (score / 300);
+            let hp = 1 + Math.floor(score / 50); 
+            let size = 40 + (hp * 2); // 체력이 높으면 크기도 살짝 큼
+            
+            meteors.push({ 
+                x: x, y: -50, speed: speed, hp: hp, maxHp: hp, size: size,
+                emoji: meteorEmojis[Math.floor(Math.random() * meteorEmojis.length)]
+            });
+        }
+
+        function loop() {
+            if (!playing) return;
+            animationId = requestAnimationFrame(loop);
+
+            // 💡 주사율 고정 방어 코드
+            let now = Date.now();
+            let elapsed = now - lastTime;
+            if (elapsed < frameDelay) return;
+            lastTime = now - (elapsed % frameDelay);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            player.update();
+            player.draw();
+
+            // 💡 운석 소환 (점수가 오를수록 더 자주 나옴)
+            let spawnRate = Math.max(15, 60 - Math.floor(score / 20));
+            if (frames % spawnRate === 0) spawnMeteor();
+
+            // 파티클 처리
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.alpha -= 0.05;
+                if (p.alpha <= 0) { particles.splice(i, 1); i--; continue; }
+                ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color; 
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); 
+                ctx.globalAlpha = 1.0;
+            }
+
+            // 아이템 이동 및 획득
+            for (let i = 0; i < items.length; i++) {
+                let it = items[i];
+                it.y += 3; // 아이템 떨어지는 속도
+                ctx.font = "30px Arial";
+                ctx.fillText(it.emoji, it.x - 15, it.y + 10);
+
+                // 플레이어 획득 판정
+                let dist = Math.hypot(player.x - it.x, player.y - it.y);
+                if (dist < player.size) {
+                    if (it.type === 'speed') { player.fireRate = Math.max(8, player.fireRate - 3); createExplosion(player.x, player.y, "#f1c40f", 20); }
+                    if (it.type === 'multi') { player.multiShot = Math.min(3, player.multiShot + 1); createExplosion(player.x, player.y, "#3498db", 20); }
+                    if (it.type === 'power') { player.damage += 1; createExplosion(player.x, player.y, "#e74c3c", 20); }
+                    items.splice(i, 1); i--;
+                    continue;
+                }
+                
+                if (it.y > canvas.height + 50) { items.splice(i, 1); i--; }
+            }
+
+            // 총알 이동 및 그리기
+            ctx.fillStyle = "#3498db";
+            for (let i = 0; i < bullets.length; i++) {
+                let b = bullets[i];
+                b.x += b.vx; b.y += b.vy;
+                ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
+                
+                if (b.x < 0 || b.x > canvas.width || b.y < 0) { bullets.splice(i, 1); i--; }
+            }
+
+            // 운석 이동 및 충돌 판정
+            for (let i = 0; i < meteors.length; i++) {
+                let m = meteors[i];
+                m.y += m.speed;
+
+                ctx.font = m.size + "px Arial";
+                ctx.fillText(m.emoji, m.x - m.size/2, m.y + m.size/3);
+
+                // 💡 게임오버 조건 1: 운석이 바닥에 닿았을 때
+                if (m.y + (m.size/2) > canvas.height) {
+                    gameOver("운석이 지구(바닥)에 충돌했습니다!");
+                    return;
+                }
+
+                // 💡 게임오버 조건 2: 플레이어와 운석이 부딪혔을 때
+                let distToPlayer = Math.hypot(player.x - m.x, player.y - m.y);
+                if (distToPlayer < (player.size/2 + m.size/2 - 5)) {
+                    gameOver("운석과 충돌했습니다!");
+                    return;
+                }
+
+                // 총알과 운석 충돌
+                let hit = false;
+                for (let j = 0; j < bullets.length; j++) {
+                    let b = bullets[j];
+                    let distToBullet = Math.hypot(b.x - m.x, b.y - m.y);
+                    
+                    if (distToBullet < (m.size/2 + b.size)) {
+                        m.hp -= player.damage;
+                        createExplosion(b.x, b.y, "#f1c40f", 5);
+                        bullets.splice(j, 1);
+                        
+                        if (m.hp <= 0) {
+                            score += m.maxHp;
+                            createExplosion(m.x, m.y, "#e67e22", 15);
+                            
+                            // 💡 아이템 드랍 (15% 확률)
+                            let rand = Math.random();
+                            if (rand < 0.05) items.push({ x: m.x, y: m.y, type: 'speed', emoji: '⚡' });
+                            else if (rand < 0.10) items.push({ x: m.x, y: m.y, type: 'multi', emoji: '🔫' });
+                            else if (rand < 0.15) items.push({ x: m.x, y: m.y, type: 'power', emoji: '💥' });
+
+                            meteors.splice(i, 1);
+                            hit = true;
+                        }
+                        break;
+                    }
+                }
+                if (hit) i--;
+            }
+
+            // 점수 표시
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 24px Arial";
+            ctx.fillText(`파괴 점수: ${score}`, 20, 40);
+            
+            // 현재 업그레이드 상태 표시
+            ctx.font = "18px Arial";
+            ctx.fillStyle = "#f1c40f"; ctx.fillText(`⚡ 연사력: Lv.${Math.floor((30 - player.fireRate)/2)}`, 20, 70);
+            ctx.fillStyle = "#3498db"; ctx.fillText(`🔫 다중발사: Lv.${player.multiShot}`, 20, 95);
+            ctx.fillStyle = "#e74c3c"; ctx.fillText(`💥 공격력: Lv.${player.damage}`, 20, 120);
+
+            frames++;
+        }
+
+        function gameOver(reason) {
+            playing = false;
+            cancelAnimationFrame(animationId);
+
+            setTimeout(() => {
+                const nickname = prompt(`💥 게임 오버!\n사유: ${reason}\n최종 점수: ${score}점\n명예의 전당에 올릴 닉네임을 입력하세요!`);
+                if (nickname) {
+                    document.getElementById("startBtn").innerText = "점수 전송 중...";
+                    // 💡 shooter DB 테이블로 전송
+                    fetch("/api/ranking", {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ nickname: nickname, score: score, game_type: 'shooter' })
+                    }).then(() => loadRanking());
+                }
+                document.getElementById("uiScreen").style.display = "flex";
+                document.getElementById("uiMessage").innerText = `최종 점수: ${score}점`;
+                document.getElementById("startBtn").innerText = "🔄 다시 출격하기";
+            }, 100);
+        }
+
+        function loadRanking() {
+            fetch("/api/ranking?game_type=shooter").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList');
+                list.innerHTML = "";
+                data.forEach((user, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : '';
+                    list.innerHTML += `<li class="${rankClass}">${index + 1}등 : ${user.nickname} <span style="float: right; color: #3498db; font-weight: bold;">${user.score}점</span></li>`;
+                });
+            }).catch(err => document.getElementById('rankList').innerHTML = "<li>랭킹 로드 실패</li>");
+        }
+
+        // 💡 방향키 누를 때 스크롤되는 현상 완벽 방지!
+        window.addEventListener("keydown", (e) => {
+            if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+                e.preventDefault(); 
+            }
+            if(keys.hasOwnProperty(e.key)) keys[e.key] = true;
+        }, { passive: false });
+
+        window.addEventListener('keyup', e => { 
+            if(keys.hasOwnProperty(e.key)) keys[e.key] = false; 
+        });
+
+        loadRanking();
+    </script>
+</body>
+</html>

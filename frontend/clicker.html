@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>마린 키우기</title>
+    <style>
+        body { text-align: center; font-family: 'Arial', sans-serif; background-color: #0b0710; color: #fff; margin: 0; padding: 20px; }
+        .home-btn { position: absolute; top: 20px; left: 20px; padding: 10px 20px; background: #8e44ad; color: white; text-decoration: none; font-weight: bold; border-radius: 8px; transition: 0.2s; z-index: 100; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .home-btn:hover { background: #732d91; transform: scale(1.05); }
+
+        h1 { color: #9b59b6; text-shadow: 2px 2px 5px rgba(155, 89, 182, 0.5); margin-bottom: 5px; }
+
+        .game-container { position: relative; width: 1000px; margin: 0 auto; }
+        canvas { background: #14101d; border: 2px solid #9b59b6; border-radius: 10px; display: block; box-shadow: 0 0 20px rgba(155, 89, 182, 0.3); }
+
+        #uiScreen, #upgradeScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 10px; z-index: 10; }
+        #uiScreen { background: rgba(0,0,0,0.7); }
+        #upgradeScreen { background: rgba(0,0,0,0.85); display: none; z-index: 20; }
+
+        .upgrade-container { display: flex; gap: 15px; margin-top: 20px; flex-wrap: wrap; justify-content: center; max-width: 800px; }
+        .upgrade-card { background: #2c3e50; border: 2px solid #9b59b6; border-radius: 10px; padding: 15px; width: 200px; cursor: pointer; transition: 0.2s; text-align: center; }
+        .upgrade-card:hover { background: #34495e; transform: translateY(-10px); box-shadow: 0 10px 20px rgba(155, 89, 182, 0.5); }
+        .upgrade-title { font-size: 20px; font-weight: bold; color: #f1c40f; margin-bottom: 8px; }
+        .upgrade-desc { font-size: 14px; color: #bdc3c7; margin-bottom: 10px; min-height: 40px; }
+        .upgrade-level { font-size: 14px; color: #2ecc71; font-weight: bold; }
+
+        button.action-btn { font-size: 24px; padding: 15px 50px; background: #8e44ad; color: #fff; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; box-shadow: 0 5px 15px rgba(142, 68, 173, 0.4); margin-top: 20px; }
+        button.action-btn:hover { background: #732d91; transform: scale(1.05); }
+
+        #leaderboard { margin-top: 20px; background: rgba(20,16,29,0.9); padding: 20px; border-radius: 10px; display: inline-block; text-align: left; min-width: 600px; border: 1px solid #9b59b6; margin-bottom: 50px; }
+        li { font-size: 18px; margin: 8px 0; border-bottom: 1px dashed #555; padding-bottom: 5px; list-style: none; color: #ddd; display: flex; justify-content: space-between;}
+        .rank-1 { color: #f1c40f; font-weight: bold; font-size: 22px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="home-btn">🏠 로비로 돌아가기</a>
+
+    <h1>🔫 마린 키우기</h1>
+    <p style="color: #bdc3c7; font-weight: bold; margin-top: -5px;">방향키로 이동하며 다가오는 적들을 처치하세요!</p>
+
+    <div class="game-container">
+        <canvas id="gameCanvas" width="1000" height="750"></canvas>
+
+        <div id="uiScreen">
+            <h2 id="uiMessage" style="color: #9b59b6; text-shadow: 2px 2px 4px #000; font-size: 36px;">전투 준비 완료!</h2>
+            <button id="startBtn" class="action-btn" onclick="startGame()">▶ 마린 투입</button>
+        </div>
+
+        <div id="upgradeScreen">
+            <h2 style="color: #9b59b6; font-size: 40px; text-shadow: 0 0 10px #9b59b6;">FIREPOWER UPGRADE!</h2>
+            <p style="color: white; font-size: 18px;">압도적인 화력을 선택하세요.</p>
+            <div id="upgradeOptions" class="upgrade-container"></div>
+        </div>
+    </div>
+
+    <div id="leaderboard">
+        <h3 style="text-align: center; color: #9b59b6; margin-top:0;">🏆 실시간 처치 랭킹</h3>
+        <ul id="rankList" style="padding: 0;">랭킹을 불러오는 중...</ul>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        let playing = false; let isPaused = false;
+        let score = 0; let frames = 0; let animationId;
+        let lastTime = 0; const FPS = 60; const frameDelay = 1000 / FPS;
+
+        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+
+        window.addEventListener("keydown", (e) => {
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
+            if(keys.hasOwnProperty(e.key)) keys[e.key] = true;
+        }, { passive: false });
+        window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+        const walls = [
+            {x: 150, y: 150, w: 200, h: 30}, {x: 650, y: 150, w: 200, h: 30},
+            {x: 150, y: 550, w: 200, h: 30}, {x: 650, y: 550, w: 200, h: 30}
+        ];
+
+        function isCollidingWithWall(cx, cy, radius) {
+            for (let w of walls) {
+                let testX = cx; let testY = cy;
+                if (cx < w.x) testX = w.x; else if (cx > w.x + w.w) testX = w.x + w.w;
+                if (cy < w.y) testY = w.y; else if (cy > w.y + w.h) testY = w.y + w.h;
+                if (Math.sqrt((cx - testX)**2 + (cy - testY)**2) <= radius) return true;
+            }
+            return false;
+        }
+
+        const upgradesInfo = {
+            atkSpeed:   { name: '⚡ 자극제 (공속)', desc: '총알 발사 속도가 극한으로 빨라집니다.', max: 20 },
+            multishot:  { name: '🔫 산탄총 (다중)', desc: '한 번에 발사되는 총알 개수가 늘어납니다.', max: 20 },
+            damage:     { name: '💥 철갑탄 (파괴력)', desc: '총알 한 발의 데미지가 무식하게 강해집니다.', max: 20 },
+            piercing:   { name: '🚀 우라늄탄 (관통)', desc: '총알이 적을 뚫고 지나가며 다수를 타격합니다.', max: 20 },
+            bulletSize: { name: '🔴 대구경 (크기)', desc: '총알 크기가 커져 적을 맞추기 쉬워집니다.', max: 20 },
+            moveSpeed:  { name: '👟 전투화 (이속)', desc: '캐릭터의 기본 이동 속도가 영구적으로 빨라집니다.', max: 20 }
+        };
+
+        const player = {
+            x: 500, y: 375, size: 20, speed: 4.5,
+            hp: 100, maxHp: 200, level: 1, exp: 0, maxExp: 10, shootTimer: 0, aimAngle: 0,
+            upgrades: { atkSpeed: 0, multishot: 0, damage: 0, piercing: 0, bulletSize: 0, moveSpeed: 0 },
+            freezeTimer: 0, firebatTimer: 0, magnetTimer: 0,
+
+            get fireRate() { return Math.max(5, 25 - (this.upgrades.atkSpeed * 2)); },
+            get bulletDamage() { return 2 + (this.upgrades.damage * 1.5); },
+            get pierceCount() { return this.upgrades.piercing; },
+
+            update() {
+                let dx = 0, dy = 0;
+                
+                // 이동 속도 보너스 적용
+                let bonusSpeed = (this.upgrades.moveSpeed || 0) * 0.5;
+                let currentSpeed = this.speed + bonusSpeed;
+
+                if (keys.w || keys.ArrowUp) dy -= currentSpeed;
+                if (keys.s || keys.ArrowDown) dy += currentSpeed;
+                if (keys.a || keys.ArrowLeft) dx -= currentSpeed;
+                if (keys.d || keys.ArrowRight) dx += currentSpeed;
+
+                if (dx !== 0 && !isCollidingWithWall(this.x + dx, this.y, 12)) this.x += dx;
+                if (dy !== 0 && !isCollidingWithWall(this.x, this.y + dy, 12)) this.y += dy;
+
+                this.x = Math.max(15, Math.min(canvas.width - 15, this.x));
+                this.y = Math.max(15, Math.min(canvas.height - 15, this.y));
+
+                let target = getNearestEnemy();
+                if (target) this.aimAngle = Math.atan2(target.y - this.y, target.x - this.x);
+
+                if (this.exp >= this.maxExp) {
+                    this.level++;
+                    this.exp -= this.maxExp;
+                    this.maxExp = Math.floor(this.maxExp * 1.1) + 10;
+                    triggerLevelUp();
+                }
+
+                if (this.freezeTimer > 0) this.freezeTimer--;
+                if (this.firebatTimer > 0) this.firebatTimer--;
+                if (this.magnetTimer > 0) this.magnetTimer--;
+            },
+            draw() {
+                if (this.firebatTimer > 0) {
+                    ctx.beginPath(); ctx.arc(this.x, this.y, 80, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(231, 76, 60, 0.3)"; ctx.fill();
+                    ctx.beginPath(); ctx.arc(this.x, this.y, 60, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(241, 196, 15, 0.3)"; ctx.fill();
+                }
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.aimAngle);
+
+                ctx.strokeStyle = "#111"; ctx.lineWidth = 1;
+                ctx.fillStyle = "#333"; ctx.fillRect(5, -4, 25, 8);
+                ctx.fillStyle = "#7f8c8d"; ctx.fillRect(25, -3, 10, 6);
+                ctx.fillStyle = "#2980b9";
+                ctx.beginPath(); ctx.ellipse(0, -10, 8, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                ctx.beginPath(); ctx.ellipse(0, 10, 8, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+                ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+                ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fillStyle = "#1f618d"; ctx.fill();
+                ctx.beginPath(); ctx.arc(2, 0, 6, -Math.PI / 2.5, Math.PI / 2.5); ctx.fillStyle = "#f1c40f"; ctx.fill();
+                ctx.restore();
+
+                ctx.fillStyle = "#444"; ctx.fillRect(this.x - 20, this.y + 20, 40, 5);
+                ctx.fillStyle = "#2ecc71"; ctx.fillRect(this.x - 20, this.y + 20, 40 * (Math.max(0, this.hp) / this.maxHp), 5);
+            }
+        };
+
+        const bullets = []; const enemies = []; const items = []; const particles = [];
+        const enemyTypes = ["🐛", "🦂", "🕷️", "🦠", "🐙"];
+
+        function createExplosion(x, y, color, count) {
+            for(let i=0; i<count; i++) particles.push({ x: x, y: y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, size: Math.random() * 4 + 2, alpha: 1, color: color });
+        }
+
+        function drawWalls() {
+            ctx.fillStyle = "#2c3e50"; ctx.strokeStyle = "#9b59b6"; ctx.lineWidth = 2;
+            for(let w of walls) { ctx.fillRect(w.x, w.y, w.w, w.h); ctx.strokeRect(w.x, w.y, w.w, w.h); }
+        }
+
+        function startGame() {
+            document.getElementById("uiScreen").style.display = "none";
+            bullets.length = 0; enemies.length = 0; items.length = 0; particles.length = 0;
+            score = 0; frames = 0; isPaused = false;
+            player.x = 500; player.y = 375; player.hp = 100; player.level = 1; player.exp = 0; player.maxExp = 10;
+            player.upgrades = { atkSpeed: 0, multishot: 0, damage: 0, piercing: 0, bulletSize: 0, moveSpeed: 0 };
+            player.freezeTimer = 0; player.firebatTimer = 0; player.magnetTimer = 0;
+            playing = true; lastTime = Date.now(); loop();
+        }
+
+        function triggerLevelUp() {
+            isPaused = true; createExplosion(player.x, player.y, "#f1c40f", 40);
+            let available = Object.keys(upgradesInfo).filter(key => player.upgrades[key] < upgradesInfo[key].max);
+            let choices = [];
+            while(choices.length < 3 && available.length > 0) {
+                let r = Math.floor(Math.random() * available.length);
+                choices.push(available[r]); available.splice(r, 1);
+            }
+            const container = document.getElementById("upgradeOptions"); container.innerHTML = "";
+            if (choices.length === 0) { applyUpgrade('heal_only'); return; }
+            choices.forEach(key => {
+                const info = upgradesInfo[key]; const curLvl = player.upgrades[key];
+                const btn = document.createElement("div"); btn.className = "upgrade-card";
+                btn.innerHTML = `<div class="upgrade-title">${info.name}</div><div class="upgrade-desc">${info.desc}</div><div class="upgrade-level">Lv.${curLvl} ➔ Lv.${curLvl + 1}</div>`;
+                btn.onclick = () => applyUpgrade(key); container.appendChild(btn);
+            });
+            document.getElementById("upgradeScreen").style.display = "flex";
+        }
+
+        function applyUpgrade(key) {
+            if (key !== 'heal_only') player.upgrades[key]++;
+            else player.hp = Math.min(player.maxHp, player.hp + 50);
+            document.getElementById("upgradeScreen").style.display = "none"; isPaused = false;
+        }
+
+        function getNearestEnemy() {
+            let nearest = null; let minDist = Infinity;
+            for (let e of enemies) {
+                let dist = Math.hypot(player.x - e.x, player.y - e.y);
+                if (dist < minDist) { minDist = dist; nearest = e; }
+            }
+            return nearest;
+        }
+
+        function autoShoot() {
+            player.shootTimer++;
+            if (player.shootTimer >= player.fireRate) {
+                player.shootTimer = 0;
+                let target = getNearestEnemy();
+                if (target) {
+                    const speed = 15;
+                    function shootBullet(offsetAngle) {
+                        bullets.push({
+                            x: player.x, y: player.y,
+                            vx: Math.cos(player.aimAngle + offsetAngle) * speed, vy: Math.sin(player.aimAngle + offsetAngle) * speed,
+                            radius: 4 + player.upgrades.bulletSize,
+                            color: "#f1c40f",
+                            pierce: player.pierceCount,
+                            hitEnemies: []
+                        });
+                    }
+
+                    let shots = 1 + Math.floor(player.upgrades.multishot / 2);
+                    if (shots === 1) shootBullet(0);
+                    else if (shots === 2) { shootBullet(-0.1); shootBullet(0.1); }
+                    else if (shots === 3) { shootBullet(-0.2); shootBullet(0); shootBullet(0.2); }
+                    else if (shots === 4) { shootBullet(-0.3); shootBullet(-0.1); shootBullet(0.1); shootBullet(0.3); }
+                    else { shootBullet(-0.4); shootBullet(-0.2); shootBullet(0); shootBullet(0.2); shootBullet(0.4); }
+                }
+            }
+        }
+
+        function spawnEnemy() {
+            let x, y;
+            if (Math.random() < 0.5) { x = Math.random() < 0.5 ? -30 : canvas.width + 30; y = Math.random() * canvas.height; }
+            else { x = Math.random() * canvas.width; y = Math.random() < 0.5 ? -30 : canvas.height + 30; }
+
+            // 몬스터 속도 제한 (너무 빠르지 않게 조절)
+            const speed = Math.random() * 1.2 + 0.4 + Math.min(1.5, score / 1500);
+            const hpScaling = 1 + Math.floor(score / 40);
+            const isBoss = score >= 30 && Math.random() < 0.04;
+
+            enemies.push({
+                x: x, y: y, speed: speed, size: isBoss ? 55 : 30,
+                hp: isBoss ? 8 * hpScaling : 2 * hpScaling,
+                maxHp: isBoss ? 8 * hpScaling : 2 * hpScaling,
+                isBoss: isBoss, emoji: enemyTypes[Math.floor(Math.random() * enemyTypes.length)]
+            });
+        }
+
+        function dropItemsAndKill(e, index) {
+            score += e.isBoss ? 5 : 1;
+            createExplosion(e.x, e.y, e.isBoss ? "#e74c3c" : "#9b59b6", 15);
+
+            if (e.isBoss) {
+                items.push({ type: 'boss_gem', x: e.x, y: e.y, amount: 50 });
+            } else {
+                let rand = Math.random();
+                if (rand < 0.04) { items.push({ type: 'heart', x: e.x, y: e.y, emoji: '💖' }); }
+                else if (rand < 0.08) { items.push({ type: 'firebat', x: e.x, y: e.y, emoji: '🔥' }); }
+                else if (rand < 0.12) { items.push({ type: 'magnet', x: e.x, y: e.y, emoji: '🧲' }); }
+                else { items.push({ type: 'gem', x: e.x, y: e.y, amount: 3 }); }
+            }
+            enemies.splice(index, 1);
+        }
+
+        function loop() {
+            if (!playing) return;
+            animationId = requestAnimationFrame(loop);
+            if (isPaused) return;
+
+            let now = Date.now(); let elapsed = now - lastTime;
+            if (elapsed < frameDelay) return;
+            lastTime = now - (elapsed % frameDelay);
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawWalls(); player.update(); player.draw(); autoShoot();
+
+            ctx.fillStyle = "#fff"; ctx.font = "bold 20px Arial";
+            ctx.fillText(`Lv.${player.level} | 킬: ${score}`, 20, 30);
+            ctx.fillStyle = "#555"; ctx.fillRect(20, 45, 300, 15);
+            ctx.fillStyle = "#9b59b6"; ctx.fillRect(20, 45, 300 * (player.exp / player.maxExp), 15);
+
+            const spawnRate = Math.max(10, 40 - Math.floor(score / 15));
+            if (frames % spawnRate === 0) spawnEnemy();
+
+            for (let i = 0; i < items.length; i++) {
+                let it = items[i];
+
+                if (player.magnetTimer > 0 && (it.type === 'gem' || it.type === 'boss_gem')) {
+                    const angle = Math.atan2(player.y - it.y, player.x - it.x);
+                    it.x += Math.cos(angle) * 12;
+                    it.y += Math.sin(angle) * 12;
+                }
+
+                if (['heart', 'freeze', 'firebat', 'magnet'].includes(it.type)) {
+                    ctx.font = "20px Arial"; ctx.fillText(it.emoji, it.x - 10, it.y + 5);
+                } else if (it.type === 'gem') {
+                    ctx.fillStyle = "#3498db"; ctx.beginPath(); ctx.arc(it.x, it.y, 6, 0, Math.PI*2); ctx.fill();
+                } else if (it.type === 'boss_gem') {
+                    ctx.fillStyle = "#2ecc71"; ctx.beginPath(); ctx.arc(it.x, it.y, 10, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+                }
+
+                const distToPlayer = Math.hypot(player.x - it.x, player.y - it.y);
+                if (distToPlayer < 40) {
+                    if (it.type === 'gem' || it.type === 'boss_gem') {
+                        player.exp += it.amount;
+                    } else if (it.type === 'heart') {
+                        player.hp = Math.min(player.maxHp, player.hp + (player.maxHp * 0.5));
+                        createExplosion(player.x, player.y, "#2ecc71", 15);
+                    } else if (it.type === 'freeze') {
+                        player.freezeTimer = 300;
+                        createExplosion(player.x, player.y, "#3498db", 15);
+                    } else if (it.type === 'firebat') {
+                        player.firebatTimer = 420;
+                        createExplosion(player.x, player.y, "#e74c3c", 15);
+                    } else if (it.type === 'magnet') {
+                        player.magnetTimer = 600;
+                        createExplosion(player.x, player.y, "#9b59b6", 15);
+                    }
+                    items.splice(i, 1); i--;
+                }
+            }
+
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy; p.alpha -= 0.04;
+                if (p.alpha <= 0) { particles.splice(i, 1); i--; continue; }
+                ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0;
+            }
+
+            for (let i = 0; i < bullets.length; i++) {
+                let b = bullets[i];
+                b.x += b.vx; b.y += b.vy;
+                if (isCollidingWithWall(b.x, b.y, b.radius)) { createExplosion(b.x, b.y, "#95a5a6", 3); bullets.splice(i, 1); i--; continue; }
+                ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2); ctx.fillStyle = b.color; ctx.fill();
+                if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) { bullets.splice(i, 1); i--; }
+            }
+
+            for (let i = 0; i < enemies.length; i++) {
+                let e = enemies[i];
+                const distToPlayer = Math.hypot(player.x - e.x, player.y - e.y);
+
+                if (player.firebatTimer > 0 && distToPlayer < 80) {
+                    e.hp -= (0.5 + (player.upgrades.damage * 0.2));
+                    if (frames % 15 === 0) createExplosion(e.x, e.y, "#e74c3c", 2);
+                }
+
+                if (e.hp <= 0) { dropItemsAndKill(e, i); i--; continue; }
+
+                let nextX = e.x; let nextY = e.y;
+
+                if (player.freezeTimer <= 0) {
+                    const angle = Math.atan2(player.y - e.y, player.x - e.x);
+                    nextX = e.x + Math.cos(angle) * e.speed;
+                    nextY = e.y + Math.sin(angle) * e.speed;
+                }
+
+                if (!isCollidingWithWall(nextX, e.y, e.size/2)) e.x = nextX;
+                if (!isCollidingWithWall(e.x, nextY, e.size/2)) e.y = nextY;
+
+                ctx.font = e.size + "px Arial";
+
+                if (player.freezeTimer > 0) {
+                    ctx.fillStyle = "rgba(52, 152, 219, 0.4)";
+                    ctx.fillRect(e.x - e.size/2, e.y - e.size/2 - 10, e.size, e.size + 10);
+                }
+                ctx.fillText(e.emoji, e.x - e.size/2, e.y + e.size/3);
+
+                if(e.isBoss) { ctx.fillStyle = "#444"; ctx.fillRect(e.x - 20, e.y - e.size/2 - 10, 40, 5); ctx.fillStyle = "#e67e22"; ctx.fillRect(e.x - 20, e.y - e.size/2 - 10, 40 * (e.hp/e.maxHp), 5); }
+
+                // 충돌 검사 (파이어뱃 무적 & 즉사 적용 완료)
+                if (distToPlayer < player.size/2 + e.size/2 - 5) {
+                    if (player.firebatTimer > 0) {
+                        e.hp = 0; // 불 닿으면 몬스터 즉사
+                    } else {
+                        player.hp -= e.isBoss ? 2 : 0.5; 
+                        if (player.hp <= 0) { gameOver(); return; }
+                    }
+                }
+
+                for (let j = 0; j < bullets.length; j++) {
+                    let b = bullets[j];
+                    const distToBullet = Math.hypot(b.x - e.x, b.y - e.y);
+                    if (distToBullet < e.size / 2 + b.radius && !b.hitEnemies.includes(e)) {
+                        e.hp -= player.bulletDamage;
+                        b.hitEnemies.push(e);
+                        createExplosion(b.x, b.y, "#f1c40f", 3);
+
+                        if (b.pierce <= 0) { bullets.splice(j, 1); j--; }
+                        else { b.pierce--; }
+
+                        if(e.hp <= 0) {
+                            dropItemsAndKill(e, i); i--; break;
+                        }
+                    }
+                }
+            }
+            frames++;
+        }
+
+        function gameOver() {
+            playing = false;
+            setTimeout(() => {
+                const nickname = prompt(`💥 마린 전사!\n달성 레벨: ${player.level}\n처치한 적: ${score}마리\n명예의 전당 닉네임을 입력하세요!`);
+                if (nickname) {
+                    document.getElementById("startBtn").innerText = "점수 전송 중...";
+                    fetch("/api/ranking", { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: nickname, score: score, game_type: 'clicker' }) }).then(() => loadRanking());
+                }
+                document.getElementById("uiScreen").style.display = "flex";
+                document.getElementById("uiMessage").innerText = `최종 킬 수: ${score}`;
+                document.getElementById("startBtn").innerText = "🔄 다시 투입하기";
+            }, 100);
+        }
+
+        function loadRanking() {
+            fetch("/api/ranking?game_type=clicker").then(res => res.json()).then(data => {
+                const list = document.getElementById('rankList'); list.innerHTML = "";
+                data.forEach((user, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : '';
+                    list.innerHTML += `<li class="${rankClass}"><span>${index + 1}등: ${user.nickname}</span> <span style="color: #9b59b6; font-weight: bold;">${user.score} Kills</span></li>`;
+                });
+            }).catch(err => document.getElementById('rankList').innerHTML = "<li>랭킹 로드 실패</li>");
+        }
+        loadRanking();
+    </script>
+</body>
+</html>
