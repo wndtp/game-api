@@ -3,9 +3,8 @@ name: Deploy To Servers
 on:
   push:
     branches: [ "main" ]
-# ... (위쪽 코드는 그대로 유지) ...
-  
-  # 103번 서버(API-Node1) 전용 명령
+
+jobs:
   deploy-103:
     runs-on: [self-hosted, API-Node1]
     steps:
@@ -13,18 +12,12 @@ on:
         uses: actions/checkout@v3
       - name: 배포 및 재시작
         run: |
-          # 1. 프론트엔드 파일 업데이트
           sudo cp -r frontend/* /var/www/html/
-          
-          # 2. 백엔드 최신 코드를 진짜 서버 폴더로 덮어쓰기
           cp -f server.js package*.json ~/game-api/
-          
-          # 3. 진짜 서버 폴더로 이동해서 PM2 재시작
           cd ~/game-api
           npm install
           pm2 reload all
 
-  # 104번 서버(API-Node2) 전용 명령도 위와 똑같이 수정!
   deploy-104:
     runs-on: [self-hosted, API-Node2]
     steps:
