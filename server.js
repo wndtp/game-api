@@ -21,7 +21,7 @@ const db = mysql.createPool({
 db.on('error', (err) => {
     console.error('🚨 DB 에러 발생:', err);
 });
-
+//test//
 // 랭킹 저장 API
 app.post('/api/ranking', (req, res) => {
     const { nickname, score, game_type } = req.body;
