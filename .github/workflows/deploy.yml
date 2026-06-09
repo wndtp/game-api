@@ -1,0 +1,19 @@
+name: Deploy To Servers
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: 1. 최신 코드 땡겨오기
+        uses: actions/checkout@v3
+
+      - name: 2. 서버 환경 업데이트 (Nginx 폴더 복사 및 PM2 재시작)
+        run: |
+          sudo cp -r frontend/* /var/www/html/
+          npm install
+          pm2 reload all
