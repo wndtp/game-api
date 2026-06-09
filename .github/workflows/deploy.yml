@@ -5,14 +5,25 @@ on:
     branches: [ "main" ]
 
 jobs:
-  deploy:
-    runs-on: self-hosted
-
+  # 103번 서버(API-Node1) 전용 명령
+  deploy-103:
+    runs-on: [self-hosted, API-Node1]
     steps:
-      - name: 1. 최신 코드 땡겨오기
+      - name: 코드 땡겨오기
         uses: actions/checkout@v3
+      - name: 배포 및 재시작
+        run: |
+          sudo cp -r frontend/* /var/www/html/
+          npm install
+          pm2 reload all
 
-      - name: 2. 서버 환경 업데이트 (Nginx 폴더 복사 및 PM2 재시작)
+  # 104번 서버(API-Node2) 전용 명령
+  deploy-104:
+    runs-on: [self-hosted, API-Node2]
+    steps:
+      - name: 코드 땡겨오기
+        uses: actions/checkout@v3
+      - name: 배포 및 재시작
         run: |
           sudo cp -r frontend/* /var/www/html/
           npm install
