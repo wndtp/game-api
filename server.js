@@ -22,6 +22,9 @@ db.on('error', (err) => {
     console.error('🚨 DB 에러 발생:', err);
 });
 //testtest
+//
+// 🏥 자동 복구(Auto-Healing) 헬스체크용 라우터 추가
+app.get('/health', (req, res) => res.status(200).send('OK'));
 // 랭킹 저장 API
 app.post('/api/ranking', (req, res) => {
     const { nickname, score, game_type } = req.body;
