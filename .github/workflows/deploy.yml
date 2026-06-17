@@ -8,9 +8,9 @@ jobs:
   deploy-103:
     runs-on: [self-hosted, API-Node1]
     steps:
-      - name: 코드 땡겨오기
+      - name: Checkout Repository
         uses: actions/checkout@v3
-      - name: 배포 및 재시작
+      - name: Deploy & Reload Application
         run: |
           sudo cp -r frontend/* /var/www/html/
           cp -f server.js package*.json ~/game-api/
@@ -21,12 +21,15 @@ jobs:
   deploy-104:
     runs-on: [self-hosted, API-Node2]
     steps:
-      - name: 코드 땡겨오기
+      - name: Checkout Repository
         uses: actions/checkout@v3
-      - name: 배포 및 재시작
+      - name: Deploy & Reload Application
         run: |
           sudo cp -r frontend/* /var/www/html/
           cp -f server.js package*.json ~/game-api/
           cd ~/game-api
           npm install
           pm2 reload all
+
+
+
